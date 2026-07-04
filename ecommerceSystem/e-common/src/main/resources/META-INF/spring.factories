@@ -1,0 +1,12 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+ com.ecommerce.common.autoconfigure.mq.MqConfig,\
+ com.ecommerce.common.autoconfigure.mvc.JsonConfig,\
+ com.ecommerce.common.autoconfigure.mvc.MvcConfig,\
+ com.ecommerce.common.autoconfigure.mvc.ParamCheckerConfig,\
+ com.ecommerce.common.autoconfigure.mybatis.MybatisConfig,\
+ com.ecommerce.common.autoconfigure.redisson.RedissonConfig,\
+ com.ecommerce.common.autoconfigure.swagger.Knife4jConfiguration,\
+ com.ecommerce.common.autoconfigure.xxljob.XxlJobConfig,\
+ com.ecommerce.common.interceptor.SpringMVCConfig,\
+ com.ecommerce.common.autoconfigure.feign.FeignConfig,\
+ com.ecommerce.common.cache.CacheService

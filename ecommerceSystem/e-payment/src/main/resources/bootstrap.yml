@@ -1,0 +1,37 @@
+server:
+  port: 8086
+  tomcat:
+    uri-encoding: UTF-8
+spring:
+  profiles:
+    active: dev
+  application:
+    name: payment-service
+  cloud:
+    nacos:
+      config:
+        file-extension: yaml
+        shared-configs:
+          - data-id: shared-spring.yaml
+            refresh: false
+          - data-id: shared-mybatis.yaml
+            refresh: false
+          - data-id: shared-logs.yaml
+            refresh: false
+          - data-id: shared-redis.yaml
+            refresh: false
+          - data-id: shared-mq.yaml
+            refresh: false
+          - data-id: shared-xxljob.yaml
+            refresh: false
+
+ecommerce:
+  jdbc:
+    database: ecommerce_order
+  xxl-job:
+    executor:
+      port: 9994
+
+logging:
+  level:
+    com.ecommerce: debug

@@ -1,0 +1,36 @@
+server:
+  port: 8085
+  tomcat:
+    uri-encoding: UTF-8
+spring:
+  profiles:
+    active: dev
+  application:
+    name: file-service
+  cloud:
+    nacos:
+      config:
+        file-extension: yaml
+        shared-configs:
+          - data-id: shared-spring.yaml
+            refresh: false
+          - data-id: shared-logs.yaml
+            refresh: false
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+ecommerce:
+  file:
+    oss:
+      endpoint: oss-cn-beijing.aliyuncs.com
+      bucket-name: linjiahao1
+      domain: https://linjiahao1.oss-cn-beijing.aliyuncs.com
+
+logging:
+  level:
+    com.ecommerce: debug

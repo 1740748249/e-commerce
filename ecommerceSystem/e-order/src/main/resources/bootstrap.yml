@@ -1,0 +1,32 @@
+server:
+  port: 8083
+  tomcat:
+    uri-encoding: UTF-8
+spring:
+  profiles:
+    active: dev
+  application:
+    name: order-service
+  cloud:
+    nacos:
+      config:
+        file-extension: yaml
+        shared-configs:
+          - data-id: shared-spring.yaml
+            refresh: false
+          - data-id: shared-mybatis.yaml
+            refresh: false
+          - data-id: shared-logs.yaml
+            refresh: false
+          - data-id: shared-redis.yaml
+            refresh: false
+          - data-id: shared-mq.yaml
+            refresh: false
+
+ecommerce:
+  jdbc:
+    database: ecommerce_order
+
+logging:
+  level:
+    com.ecommerce: debug

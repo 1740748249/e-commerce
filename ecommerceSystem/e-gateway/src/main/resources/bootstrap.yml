@@ -1,0 +1,155 @@
+server:
+  port: 8080
+  tomcat:
+    uri-encoding: UTF-8
+spring:
+  profiles:
+    active: dev
+  application:
+    name: gateway-service
+  cloud:
+    nacos:
+      config:
+        file-extension: yaml
+        shared-configs:
+          - data-id: shared-spring.yaml
+            refresh: false
+          - data-id: shared-logs.yaml
+            refresh: false
+          - data-id: shared-redis.yaml
+            refresh: false
+    gateway:
+      routes:
+        # ============================================================
+        # 商品服务—管理员/商家 (8082): 须在 user-service 之前匹配
+        # ============================================================
+        - id: product-service-admin
+          uri: lb://product-service
+          predicates:
+            - Path=/admin/shops/**,/admin/flash-sales/**,/admin/flash-sessions/**
+
+        # ============================================================
+        # 订单服务—管理端 (8083): 须在 user-service 的 /admin/** 之前匹配
+        # ============================================================
+        - id: order-service-admin
+          uri: lb://order-service
+          predicates:
+            - Path=/admin/coupons/**
+
+        # ============================================================
+        # 用户服务 (8081): 用户/地址/开店申请/管理员
+        # ============================================================
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/users/**,/addresses/**,/admin/**
+
+        # ============================================================
+        # 秒杀下单限流（独立路由，比通配 /flash-sales/** 优先匹配）
+        # ============================================================
+        - id: flash-sale-order-rate-limit
+          uri: lb://product-service
+          predicates:
+            - Path=/flash-sales/*/order
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5000
+                redis-rate-limiter.burstCapacity: 10000
+                key-resolver: "#{@ipKeyResolver}"
+
+        # ============================================================
+        # 商品服务 (8082): 商品/分类/店铺公开/秒杀/排行榜/商家
+        # ============================================================
+        - id: product-service
+          uri: lb://product-service
+          predicates:
+            - Path=/products/**,/categories,/shops,/shops/*/products,/flash-sales/**,/ranking/**,/shops/*,/merchant/flash-sales/**,/merchant/flash-sessions/**
+
+        # ============================================================
+        # 订单服务 (8083): 订单/购物车/优惠券
+        # ============================================================
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/orders/**,/cart/**,/coupons/**
+
+        # ============================================================
+        # 通知服务 (8084): /notifications/**
+        # ============================================================
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/notifications/**
+
+        # ============================================================
+        # 文件服务 (8085): /files/**
+        # ============================================================
+        - id: file-service
+          uri: lb://file-service
+          predicates:
+            - Path=/files/**
+
+        # ============================================================
+        # 支付服务 (8086): /payment/**
+        # ============================================================
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/payment/**
+
+      # 注意：不做 StripPrefix，controller 路径即网关路径（如 /products）
+
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "*"
+            allowedMethods:
+              - "GET"
+              - "POST"
+              - "DELETE"
+              - "PUT"
+              - "OPTIONS"
+            allowedHeaders: "*"
+            allowCredentials: true
+            maxAge: 360000
+
+logging:
+  level:
+    com.ecommerce: debug
+
+ecommerce:
+  jwt:
+    location: classpath:ecommerce.jks
+    alias: ecommerce
+    password: ecommerce123
+    tokenTTL: PT30M
+  auth:
+    excludePaths:
+      # --- 用户服务公开端点 ---
+      - /users/login
+      - /users/register
+      - /admin/login
+      # --- 商品服务公开端点 ---
+      - /products
+#      - /products/*
+      - /categories
+      - /shops
+      - /shops/*/products
+      # --- 秒杀查询公开 ---
+      - /flash-sales
+      - /ranking
+      - /flash-sales/*/result
+      # --- 文件服务公开端点 ---
+      - /files/**
+      # --- 支付服务公开端点（支付宝异步通知 + 同步跳转） ---
+      - /payment/notify
+      - /payment/return
+    rolePaths:
+      /admin/**:
+        - 2
+      /notifications/**:
+        - 1
+        - 2

@@ -1,0 +1,35 @@
+server:
+  port: 8081
+  tomcat:
+    uri-encoding: UTF-8
+spring:
+  profiles:
+    active: dev
+  application:
+    name: user-service
+  cloud:
+    nacos:
+      config:
+        file-extension: yaml
+        shared-configs:
+          - data-id: shared-spring.yaml
+            refresh: false
+          - data-id: shared-mybatis.yaml
+            refresh: false
+          - data-id: shared-logs.yaml
+            refresh: false
+          - data-id: shared-redis.yaml
+            refresh: false
+
+ecommerce:
+  jdbc:
+    database: ecommerce_user
+  jwt:
+    location: classpath:ecommerce.jks
+    alias: ecommerce
+    password: ecommerce123
+    tokenTTL: PT30M
+
+logging:
+  level:
+    com.ecommerce: debug
