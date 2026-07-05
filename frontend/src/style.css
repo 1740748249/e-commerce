@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* 自定义颜色变量 */
+:root {
+  --primary: #f97316;
+  --primary-dark: #ea580c;
+  --primary-light: #ffedd5;
+  --accent: #fb923c;
+  --gradient-primary: linear-gradient(135deg, #f97316 0%, #fb923c 50%, #fdba74 100%);
+  --gradient-hero: linear-gradient(135deg, #fff7ed 0%, #ffedd5 50%, #fed7aa 100%);
+  --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.08);
+  --shadow-card-hover: 0 12px 40px -4px rgba(249, 115, 22, 0.15);
+}
+
+/* 全局平滑滚动 */
+html {
+  scroll-behavior: smooth;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d4;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a3a3a3;
+}
+
+/* 通用动画 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+/* 商品卡片悬浮效果 */
+.product-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.product-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* 按钮悬浮效果 */
+.btn-primary {
+  background: var(--gradient-primary);
+  transition: all 0.3s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(249, 115, 22, 0.4);
+}
+
+/* 输入框聚焦效果 */
+input:focus, select:focus {
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+
+/* 毛玻璃效果 */
+.glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* 渐变文字 */
+.text-gradient {
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

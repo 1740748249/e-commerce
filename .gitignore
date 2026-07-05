@@ -1,5 +1,14 @@
-# Ignore everything outside ecommerceSystem/
+# Ignore everything at root by default
 /*
 !/ecommerceSystem/
+!/frontend/
+!/admin-frontend/
 !.gitignore
 !/README.md
+!/API_and_DB_Design.md
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+admin-frontend/node_modules/
+admin-frontend/dist/
