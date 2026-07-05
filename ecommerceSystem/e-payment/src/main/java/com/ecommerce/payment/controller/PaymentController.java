@@ -66,4 +66,12 @@ public class PaymentController {
     public String refundNotify(@RequestParam Map<String, String> params) {
         return refundService.handleRefundNotify(params);
     }
+
+    /**
+     * 供 order-service 内部调用：超时取消前查支付宝真实状态并同步
+     */
+    @GetMapping("/feign/check-and-sync/{orderNo}")
+    public R<Boolean> checkAndSync(@PathVariable Long orderNo) {
+        return R.ok(paymentService.checkAndSyncByOrderNo(orderNo));
+    }
 }

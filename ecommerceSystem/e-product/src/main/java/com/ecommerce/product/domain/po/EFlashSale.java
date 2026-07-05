@@ -31,6 +31,9 @@ public class EFlashSale implements Serializable {
     @ApiModelProperty(value = "商品ID")
     private Long productId;
 
+    @ApiModelProperty(value = "参与秒杀的SKU ID")
+    private Long skuId;
+
     @ApiModelProperty(value = "报名商家ID")
     private Long shopId;
 

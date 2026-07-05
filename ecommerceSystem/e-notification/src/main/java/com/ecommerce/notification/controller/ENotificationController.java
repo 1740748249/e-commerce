@@ -48,4 +48,12 @@ public class ENotificationController {
     public R<Void> sendNotification(@Valid @RequestBody CreateNotificationDTO dto) {
         return notificationService.sendAdminNotification(dto);
     }
+
+    /**
+     * 管理员发送全站广播，实时推送给所有在线的商家。
+     */
+    @PostMapping("/broadcast")
+    public R<Void> sendBroadcast(@RequestParam String title, @RequestParam String content) {
+        return notificationService.sendBroadcast(title, content);
+    }
 }

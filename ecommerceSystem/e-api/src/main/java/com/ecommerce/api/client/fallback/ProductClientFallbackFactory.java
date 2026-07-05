@@ -40,6 +40,18 @@ public class ProductClientFallbackFactory implements FallbackFactory<ProductClie
                 log.error("Feign 调用 product-service 查询秒杀订单状态失败: flashSaleOrderId={}", flashSaleOrderId, cause);
                 return R.error("商品服务暂不可用");
             }
+
+            @Override
+            public R<Long> getShopIdByOwner(Long ownerId) {
+                log.error("Feign 调用 product-service 查询店铺归属失败: ownerId={}", ownerId, cause);
+                return R.error("商品服务暂不可用");
+            }
+
+            @Override
+            public R<List<Long>> getAllApprovedShopIds() {
+                log.error("Feign 调用 product-service 查询所有店铺ID失败", cause);
+                return R.ok(Collections.emptyList());
+            }
         };
     }
 }

@@ -20,4 +20,10 @@ public interface IPaymentService {
      * 查询支付状态
      */
     PayResultVO queryStatus(Long orderNo);
+
+    /**
+     * 主动查支付宝并同步订单状态（供 order-service 超时取消前调用）
+     * @return true=支付宝已支付且已同步回调，false=支付宝未支付或查单失败
+     */
+    boolean checkAndSyncByOrderNo(Long orderNo);
 }

@@ -843,12 +843,8 @@ public class EOrderServiceImpl extends ServiceImpl<EOrderMapper, EOrder> impleme
     public R<Void> cancelByTimeout(Long orderNo) {
         EOrder order = lambdaQuery().eq(EOrder::getOrderNo, orderNo).one();
         if (order == null) throw new BadRequestException("订单不存在");
-        // 仅限秒杀订单：此接口由 FlashSaleTimeoutJob 调用，不支持普通订单
-        if (order.getFlashSaleOrderId() == null) {
-            throw new BadRequestException("非秒杀订单，不支持此操作");
-        }
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-            return R.ok(); // 已支付或已被其他路径取消
+            return R.ok();
         }
 
         boolean cancelled = lambdaUpdate()
@@ -868,16 +864,52 @@ public class EOrderServiceImpl extends ServiceImpl<EOrderMapper, EOrder> impleme
                 .set(EUserCoupon::getOrderNo, null)
                 .update();
 
-        // 不恢复 SKU 库存、不发 ORDER_CANCELLED_NOTIFY_KEY（product-service 已处理）
-        TransactionSynchronizationManager.registerSynchronization(
-                new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        sendCancelNotification(orderNo, order);
-                    }
-                });
+        boolean isFlashSale = order.getFlashSaleOrderId() != null;
 
-        log.info("秒杀超时同步取消 EOrder 完成: orderNo={}", orderNo);
+        if (isFlashSale) {
+            // 秒杀订单：库存由 product-service 的 FlashSaleTimeoutJob 处理，这里只同步取消 EOrder
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            sendCancelNotification(orderNo, order);
+                        }
+                    });
+            log.info("秒杀超时同步取消 EOrder 完成: orderNo={}", orderNo);
+        } else {
+            // 普通订单：查询订单明细，恢复 Redis SKU 库存 + MQ 同步 DB
+            List<EOrderItem> items = orderItemService.lambdaQuery()
+                    .eq(EOrderItem::getOrderId, order.getId()).list();
+            List<StockSyncBatchMessage.SkuItem> mergedItems = items.stream()
+                    .collect(Collectors.groupingBy(EOrderItem::getSkuId,
+                            LinkedHashMap::new, Collectors.summingInt(EOrderItem::getQuantity)))
+                    .entrySet().stream()
+                    .map(e -> new StockSyncBatchMessage.SkuItem(e.getKey(), e.getValue()))
+                    .collect(Collectors.toList());
+
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            redisTemplate.executePipelined(new SessionCallback<Object>() {
+                                @Override
+                                @SuppressWarnings({"rawtypes", "unchecked"})
+                                public Object execute(org.springframework.data.redis.core.RedisOperations ops) {
+                                    for (StockSyncBatchMessage.SkuItem item : mergedItems) {
+                                        ops.opsForValue().increment(SKU_STOCK_PREFIX + item.getSkuId(),
+                                                item.getQuantity());
+                                    }
+                                    return null;
+                                }
+                            });
+                            rabbitMqHelper.sendAsync(PRODUCT_EXCHANGE, STOCK_RESTORE_KEY,
+                                    new StockSyncBatchMessage(IdUtil.fastSimpleUUID(), mergedItems));
+                            sendCancelNotification(orderNo, order);
+                        }
+                    });
+            log.info("普通订单超时取消完成: orderNo={}", orderNo);
+        }
+
         return R.ok();
     }
 

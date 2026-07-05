@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.ecommerce.api.enums.NotificationType;
-import com.ecommerce.notification.enums.IsReadStatus;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -41,8 +40,6 @@ public class ENotification implements Serializable {
     @ApiModelProperty(value = "关联订单ID")
     private Long orderId;
 
-    @ApiModelProperty(value = "是否已读: 0=未读, 1=已读")
-    private IsReadStatus isRead;
-
+    @ApiModelProperty(value = "创建时间")
     private LocalDateTime createTime;
 }

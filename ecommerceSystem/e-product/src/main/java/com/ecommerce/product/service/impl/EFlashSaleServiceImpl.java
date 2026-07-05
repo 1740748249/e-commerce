@@ -18,10 +18,12 @@ import com.ecommerce.common.utils.CollUtils;
 import com.ecommerce.common.utils.UserContext;
 import com.ecommerce.product.domain.dto.ApprovalDTO;
 import com.ecommerce.product.domain.dto.FlashSaleCreateDTO;
+import com.ecommerce.product.domain.dto.FlashSaleTimeoutMessage;
 import com.ecommerce.product.domain.po.EFlashSale;
 import com.ecommerce.product.domain.po.EFlashSaleOrder;
 import com.ecommerce.product.domain.po.EFlashSession;
 import com.ecommerce.product.domain.po.EProduct;
+import com.ecommerce.product.domain.po.EProductSku;
 import com.ecommerce.product.domain.po.EShop;
 import com.ecommerce.product.domain.vo.FlashSaleItemVO;
 import com.ecommerce.product.domain.vo.FlashSaleOrderVO;
@@ -34,9 +36,11 @@ import com.ecommerce.product.service.IEFlashSaleService;
 import com.ecommerce.product.service.IEFlashSessionService;
 import com.ecommerce.product.service.IEFlashSaleOrderService;
 import com.ecommerce.product.service.IEProductService;
+import com.ecommerce.product.service.IEProductSkuService;
 import com.ecommerce.product.service.IEShopService;
 import cn.hutool.json.JSONUtil;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -58,18 +62,22 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.ecommerce.common.constants.MqConstants.Exchange.DELAY_EXCHANGE;
 import static com.ecommerce.common.constants.MqConstants.Exchange.ORDER_EXCHANGE;
 import static com.ecommerce.common.constants.MqConstants.Exchange.PRODUCT_EXCHANGE;
 import static com.ecommerce.common.constants.MqConstants.Key.FLASH_STOCK_SYNC_KEY;
+import static com.ecommerce.common.constants.MqConstants.Key.FLASH_TIMEOUT_DELAY_KEY;
 import static com.ecommerce.common.constants.MqConstants.Key.ORDER_FLASH_CREATE_KEY;
 import static com.ecommerce.product.constants.CacheConstants.*;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EFlashSaleServiceImpl extends ServiceImpl<EFlashSaleMapper, EFlashSale> implements IEFlashSaleService {
 
     private final IEFlashSessionService flashSessionService;
     private final IEProductService productService;
+    private final IEProductSkuService productSkuService;
     private final IEShopService shopService;
     private final CacheService cacheService;
     private final StringRedisTemplate redisTemplate;
@@ -187,11 +195,19 @@ public class EFlashSaleServiceImpl extends ServiceImpl<EFlashSaleMapper, EFlashS
         if (!shopId.equals(product.getShopId())) {
             throw new BizIllegalException("商品不属于当前商家店铺");
         }
-        // 4. 校验秒杀价低于原价
-        if (dto.getFlashPrice() >= product.getMinPrice()) {
-            throw new BizIllegalException("秒杀价必须低于商品原价");
+        // 4. 校验 SKU 属于该商品
+        EProductSku sku = productSkuService.lambdaQuery()
+                .eq(EProductSku::getId, dto.getSkuId())
+                .eq(EProductSku::getProductId, dto.getProductId())
+                .one();
+        if (sku == null) {
+            throw new BizIllegalException("SKU 不属于该商品或不存在");
         }
-        // 5. 同一商品同一场次仅可报名一次
+        // 5. 校验秒杀价低于 SKU 原价
+        if (dto.getFlashPrice() >= sku.getPrice()) {
+            throw new BizIllegalException("秒杀价必须低于 SKU 原价");
+        }
+        // 6. 同一商品同一场次仅可报名一次
         Long count = lambdaQuery()
                 .eq(EFlashSale::getSessionId, dto.getSessionId())
                 .eq(EFlashSale::getProductId, dto.getProductId())
@@ -199,7 +215,7 @@ public class EFlashSaleServiceImpl extends ServiceImpl<EFlashSaleMapper, EFlashS
         if (count > 0) {
             throw new BizIllegalException("该商品已报名此场次");
         }
-        // 6. 报名成功，待审核
+        // 7. 报名成功，待审核
         EFlashSale flashSale = BeanUtils.copyBean(dto, EFlashSale.class);
         flashSale.setShopId(shopId);
         flashSale.setApprovalStatus(ApprovalStatus.PENDING);
@@ -317,10 +333,31 @@ public class EFlashSaleServiceImpl extends ServiceImpl<EFlashSaleMapper, EFlashS
                 JSONUtil.toJsonStr(order),
                 Duration.ofSeconds(ttlSeconds));
 
-        // 7. 从缓存获取最低价 SKU（预热时已缓存）
+        // 6b. 发送 15 分钟延迟消息，精准超时释放秒杀库存
+        try {
+            rabbitMqHelper.sendDelayMessage(DELAY_EXCHANGE, FLASH_TIMEOUT_DELAY_KEY,
+                    FlashSaleTimeoutMessage.builder()
+                            .flashSaleOrderId(order.getId())
+                            .flashSaleId(flashSaleId)
+                            .orderNo(orderNo)
+                            .userId(userId)
+                            .quantity(quantity)
+                            .build(),
+                    Duration.ofMinutes(15));
+        } catch (Exception e) {
+            log.error("发送秒杀超时延迟消息失败，依赖 XXL-JOB 兜底: flashSaleOrderId={},异常:{}", order.getId(), e);
+        }
+
+        // 7. 从缓存获取 SKU（预热时已缓存），为空则说明预热遗漏或旧数据无 skuId
         String skuKey = FLASH_SKU_PREFIX + flashSaleId;
         String skuIdStr = redisTemplate.opsForValue().get(skuKey);
-        Long skuId = skuIdStr != null ? Long.valueOf(skuIdStr) : null;
+        Long skuId = null;
+        if (skuIdStr != null && !"null".equals(skuIdStr) && !"".equals(skuIdStr)) {
+            skuId = Long.valueOf(skuIdStr);
+        }
+        if (skuId == null) {
+            throw new BizIllegalException("秒杀商品信息异常，请稍后重试");
+        }
 
         // 7a. 拼接完整地址
         String fullAddr = String.join(" ", address.getProvince(), address.getCity(),

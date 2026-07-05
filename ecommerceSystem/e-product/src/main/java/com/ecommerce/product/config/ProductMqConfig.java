@@ -4,8 +4,10 @@ import org.springframework.amqp.core.*;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import static com.ecommerce.common.constants.MqConstants.Exchange.DELAY_EXCHANGE;
 import static com.ecommerce.common.constants.MqConstants.Exchange.ERROR_EXCHANGE;
 import static com.ecommerce.common.constants.MqConstants.Exchange.PRODUCT_EXCHANGE;
+import static com.ecommerce.common.constants.MqConstants.Key.FLASH_TIMEOUT_DELAY_KEY;
 import static com.ecommerce.common.constants.MqConstants.Key.FLASH_ORDER_PAID_KEY;
 import static com.ecommerce.common.constants.MqConstants.Key.FLASH_SALE_REFUND_KEY;
 import static com.ecommerce.common.constants.MqConstants.Key.FLASH_STOCK_RESTORE_KEY;
@@ -88,6 +90,19 @@ public class ProductMqConfig {
     @Bean
     public Binding flashOrderPaidBinding(Queue flashOrderPaidQueue, TopicExchange productExchange) {
         return BindingBuilder.bind(flashOrderPaidQueue).to(productExchange).with(FLASH_ORDER_PAID_KEY);
+    }
+
+    // ==================== 秒杀订单超时延迟队列 ====================
+
+    @Bean
+    public Queue flashTimeoutDelayQueue() {
+        return QueueBuilder.durable("flash.timeout.delay.queue").build();
+    }
+
+    @Bean
+    public Binding flashTimeoutDelayBinding(Queue flashTimeoutDelayQueue, Exchange delayExchange) {
+        return new Binding(flashTimeoutDelayQueue.getName(), Binding.DestinationType.QUEUE,
+                delayExchange.getName(), FLASH_TIMEOUT_DELAY_KEY, null);
     }
 
     // ==================== DLQ：普通订单创建失败 Redis 回滚兜底 ====================

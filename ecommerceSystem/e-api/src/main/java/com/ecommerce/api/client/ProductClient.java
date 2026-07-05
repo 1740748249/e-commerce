@@ -34,4 +34,16 @@ public interface ProductClient {
 
     @GetMapping("/flash-sale/orders/{id}/status")
     R<Integer> getFlashOrderStatus(@PathVariable("id") Long flashSaleOrderId);
+
+    /**
+     * 根据店主 userId 查询已审批通过的店铺 ID，用于通知服务 WebSocket 鉴权的缓存回源。
+     */
+    @GetMapping("/shops/owner/{ownerId}")
+    R<Long> getShopIdByOwner(@PathVariable("ownerId") Long ownerId);
+
+    /**
+     * 获取所有已审批通过的店铺 ID，用于通知服务广播时递增全部未读计数。
+     */
+    @GetMapping("/shops/ids")
+    R<List<Long>> getAllApprovedShopIds();
 }

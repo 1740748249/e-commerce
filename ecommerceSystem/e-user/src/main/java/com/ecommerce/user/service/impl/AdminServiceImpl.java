@@ -59,14 +59,13 @@ public class AdminServiceImpl extends ServiceImpl<EUserMapper, EUser> implements
         if(eUser.getRole() != UserRole.ADMIN){
             return R.error("无管理员权限");
         }
-        //密码一致，调用jwt生成token
+        UserVO userVO = BeanUtils.copyBean(eUser, UserVO.class);
+        userVO.setLastLoginTime(LocalDateTime.now());
+        eUser.setLastLoginTime(LocalDateTime.now());
+        updateById(eUser);
         LoginVO loginVO = new LoginVO();
         loginVO.setToken(jwtTool.createToken(eUser.getId(), eUser.getRole().getValue(), Duration.parse(jwtProperties.getTokenTTL())));
-        UserVO userVO = BeanUtils.copyBean(eUser, UserVO.class);
-        LocalDateTime now = LocalDateTime.now();
-        userVO.setLastLoginTime(now);
-        eUser.setLastLoginTime(now);
-        updateById(eUser);
+        loginVO.setUser(userVO);
         log.info("超级管理员登录成功");
         return R.ok(loginVO);
     }

@@ -26,6 +26,11 @@ spring:
 ecommerce:
   jdbc:
     database: ecommerce_notification
+  jwt:
+    location: classpath:ecommerce.jks
+    alias: ecommerce
+    password: ecommerce123
+    tokenTTL: PT30M
 
 logging:
   level:

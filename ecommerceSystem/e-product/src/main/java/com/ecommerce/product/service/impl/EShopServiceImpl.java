@@ -196,6 +196,25 @@ public class EShopServiceImpl extends ServiceImpl<EShopMapper, EShop> implements
     }
 
     @Override
+    public Long getShopIdByOwner(Long ownerId) {
+        EShop shop = lambdaQuery()
+                .eq(EShop::getOwnerId, ownerId)
+                .eq(EShop::getApproved, ApprovalStatus.APPROVED)
+                .one();
+        return shop != null ? shop.getId() : null;
+    }
+
+    @Override
+    public List<Long> getAllApprovedShopIds() {
+        return lambdaQuery()
+                .eq(EShop::getApproved, ApprovalStatus.APPROVED)
+                .list()
+                .stream()
+                .map(EShop::getId)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public Long getPendingShopCount() {
         return lambdaQuery()
                 .eq(EShop::getApproved, ApprovalStatus.PENDING)

@@ -4,12 +4,9 @@ import cn.hutool.json.JSONUtil;
 import com.ecommerce.common.utils.CollUtils;
 import com.ecommerce.product.domain.po.EFlashSale;
 import com.ecommerce.product.domain.po.EFlashSession;
-import com.ecommerce.product.domain.po.EProductSku;
 import com.ecommerce.product.enums.ApprovalStatus;
-import com.ecommerce.product.enums.SkuStatus;
 import com.ecommerce.product.service.IEFlashSaleService;
 import com.ecommerce.product.service.IEFlashSessionService;
-import com.ecommerce.product.service.IEProductSkuService;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +18,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,7 +35,6 @@ public class FlashSaleStockWarmupJob {
 
     private final IEFlashSessionService flashSessionService;
     private final IEFlashSaleService flashSaleService;
-    private final IEProductSkuService productSkuService;
     private final StringRedisTemplate redisTemplate;
 
     @XxlJob("flashSaleStockWarmup")
@@ -77,22 +72,7 @@ public class FlashSaleStockWarmupJob {
             return;
         }
 
-        // 4. 一次 SQL 查询所有商品下启用态的最低价 SKU（每个商品只取一条最低价 SKU）
-        Set<Long> productIds = items.stream()
-                .map(EFlashSale::getProductId)
-                .collect(Collectors.toSet());
-        Map<Long, Long> minSkuMap = productSkuService.lambdaQuery()
-                .in(EProductSku::getProductId, productIds)            // 批量按商品ID查
-                .eq(EProductSku::getStatus, SkuStatus.ENABLED)       // 仅启用态
-                .list()
-                .stream()
-                .collect(Collectors.groupingBy(
-                        EProductSku::getProductId,                    // 按商品ID分组
-                        Collectors.collectingAndThen(
-                                Collectors.minBy(Comparator.comparingInt(EProductSku::getPrice)), // 取最低价
-                                opt -> opt.map(EProductSku::getId).orElse(null)))); // 提取SKU ID
-
-        // 5. 按场次分组，逐个写入Redis，同一场次只预热一次
+        // 4. 按场次分组，逐个写入Redis，同一场次只预热一次
         Map<Long, List<EFlashSale>> grouped = items.stream()
                 .collect(Collectors.groupingBy(EFlashSale::getSessionId)); // sessionId → [秒杀商品列表]
         int warmed = 0;                                              // 计数器：本次实际预热了几个场次
@@ -114,6 +94,11 @@ public class FlashSaleStockWarmupJob {
                 @Override
                 public Object execute(RedisOperations operations) {
                     for (EFlashSale item : sessionItems) {
+                        // 旧数据无 skuId，跳过（不再在 Redis 中预热该 SKU）
+                        if (item.getSkuId() == null) {
+                            log.warn("秒杀活动缺少 skuId，已跳过预热: flashSaleId={}", item.getId());
+                            continue;
+                        }
                         // ① 仅场次未开始时清除旧购买记录（防止上一轮残留）
                         if (now.isBefore(session.getStartTime())) {
                             operations.delete(FLASH_USER_PREFIX + item.getId()); // flash:user:{saleId}
@@ -123,14 +108,11 @@ public class FlashSaleStockWarmupJob {
                                 FLASH_STOCK_PREFIX + item.getId(),
                                 String.valueOf(item.getStock()),
                                 Duration.ofSeconds(ttl));
-                        // ③ 写入最低价SKU ID → flash:sku:{saleId}（下单时用）
-                        Long minSkuId = minSkuMap.get(item.getProductId());
-                        if (minSkuId != null) {
-                            operations.opsForValue().set(
-                                    FLASH_SKU_PREFIX + item.getId(),
-                                    String.valueOf(minSkuId),
-                                    Duration.ofSeconds(ttl));
-                        }
+                        // ③ 写入 SKU ID → flash:sku:{saleId}（下单时用）
+                        operations.opsForValue().set(
+                                FLASH_SKU_PREFIX + item.getId(),
+                                String.valueOf(item.getSkuId()),
+                                Duration.ofSeconds(ttl));
                         // ④ 写入秒杀活动快照 → flash:sale:{saleId}（order() 优先读缓存，避免回源DB）
                         operations.opsForValue().set(
                                 FLASH_SALE_PREFIX + item.getId(),

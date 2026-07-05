@@ -38,6 +38,16 @@ public class EShopController {
         return R.ok(shopService.getShopList());
     }
 
+    @GetMapping("/ids")
+    public R<List<Long>> getAllApprovedShopIds() {
+        return R.ok(shopService.getAllApprovedShopIds());
+    }
+
+    @GetMapping("/owner/{ownerId}")
+    public R<Long> getShopIdByOwner(@PathVariable Long ownerId) {
+        return R.ok(shopService.getShopIdByOwner(ownerId));
+    }
+
     @GetMapping("/{shopId}/products")
     public R<PageDTO<ProductVO>> shopProducts(@PathVariable Long shopId,
                                               PageQuery query,

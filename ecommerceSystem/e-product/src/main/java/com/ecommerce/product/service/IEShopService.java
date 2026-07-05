@@ -27,4 +27,15 @@ public interface IEShopService extends IService<EShop> {
     R<Void> approveShop(Long shopId, Boolean approved);
 
     Long getPendingShopCount();
+
+    /**
+     * 根据店主 userId 查询店铺 ID，用于其他微服务的内部调用。
+     * @return shopId，如果用户没有店铺则返回 null
+     */
+    Long getShopIdByOwner(Long ownerId);
+
+    /**
+     * 获取所有已审批通过的店铺 ID 列表，用于通知服务广播时递增全部未读计数。
+     */
+    List<Long> getAllApprovedShopIds();
 }

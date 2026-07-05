@@ -61,6 +61,9 @@ public interface MqConstants {
 
         String ORDER_DELAY_KEY = "delay.order.query";
 
+        /* 秒杀订单超时延迟消息 */
+        String FLASH_TIMEOUT_DELAY_KEY = "delay.flash.timeout";
+
         /* 购物车延迟落库 */
         String CART_SYNC_KEY = "cart.sync";
 

@@ -20,6 +20,10 @@ public class FlashSaleCreateDTO implements Serializable {
     @ApiModelProperty(value = "商品ID", required = true)
     private Long productId;
 
+    @NotNull(message = "秒杀SKU ID不能为空")
+    @ApiModelProperty(value = "参与秒杀的SKU ID", required = true)
+    private Long skuId;
+
     @NotNull(message = "秒杀价不能为空")
     @ApiModelProperty(value = "秒杀价（分）", required = true)
     private Integer flashPrice;
