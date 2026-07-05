@@ -6,6 +6,7 @@
 !.gitignore
 !/README.md
 !/API_and_DB_Design.md
+!/screenshots/
 
 # Frontend
 frontend/node_modules/
