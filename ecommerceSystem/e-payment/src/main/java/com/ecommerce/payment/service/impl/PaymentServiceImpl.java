@@ -30,7 +30,10 @@ import com.ecommerce.payment.service.IPaymentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -47,6 +50,7 @@ public class PaymentServiceImpl extends ServiceImpl<EPaymentRecordMapper, EPayme
     private final AlipayProperties alipayProperties;
     private final OrderClient orderClient;
     private final ProductClient productClient;
+    private final PlatformTransactionManager transactionManager;
 
     private static final int ORDER_STATUS_PENDING_PAYMENT = 0;
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -58,96 +62,139 @@ public class PaymentServiceImpl extends ServiceImpl<EPaymentRecordMapper, EPayme
         if (userId == null) {
             throw new BizIllegalException("请先登录");
         }
+        //跨服务查询订单基本信息
         R<OrderBasicDTO> r = orderClient.getOrderBasic(orderNo);
         if (r == null || !r.success() || r.getData() == null) {
             throw new BadRequestException("订单不存在");
         }
+        //获取响应数据
         OrderBasicDTO order = r.getData();
+        //校验用户权限，是否与订单用户一致
         if (!order.getUserId().equals(userId)) {
             throw new BadRequestException("订单不属于当前用户");
         }
+        //检验订单状态是否为待支付
         if (order.getStatus() != ORDER_STATUS_PENDING_PAYMENT) {
             throw new BadRequestException("订单状态不允许支付");
         }
 
-        // 秒杀订单：校验闪购订单状态，防止支付已被超时释放库存的订单
+        // 秒杀订单分支
         if (order.getFlashSaleOrderId() != null) {
+            //远程查询秒杀订单状态
             R<Integer> statusR = productClient.getFlashOrderStatus(order.getFlashSaleOrderId());
+            //如果响应失败，则抛出异常，不给用户继续支付
             if (!statusR.success() || statusR.getData() == null) {
                 throw new BadRequestException("秒杀订单状态查询失败，请稍后重试");
             }
+            //当秒杀订单状态不为待支付，则抛出异常，不允许继续支付
             if (statusR.getData() != 0) { // 0 = PENDING_PAYMENT
                 throw new BadRequestException("秒杀订单已超时，请重新下单");
             }
         }
-
+       //计算实际支付金额
         int payAmount = order.getTotalAmount() - order.getDiscountAmount();
+        //如果支付金额小于0，则抛出异常，不允许继续支付
         if (payAmount <= 0) {
             throw new BadRequestException("订单金额异常");
         }
-
+        //查询该订单是否有支付记录
         EPaymentRecord existRecord = lambdaQuery()
                 .eq(EPaymentRecord::getOrderNo, orderNo)
-                .last("LIMIT 1")
                 .one();
+        //支付记录不为空
         if (existRecord != null) {
+            //如果支付记录为已支付，则抛出异常，不允许继续支付
             if (existRecord.getStatus() == PaymentStatus.SUCCESS) {
                 throw new BadRequestException("该订单已支付");
             }
+            //如果支付记录为已关闭，则删除该支付记录，开启新的支付
             if (existRecord.getStatus() == PaymentStatus.CLOSED) {
                 removeById(existRecord.getId());
-            } else {
+            }
+            else {
                 // PENDING → 主动查支付宝确认实际状态
                 AlipayTradeQueryResponse queryResp = queryAlipayTrade(orderNo.toString());
+                //支付宝查询成功
                 if (queryResp != null && queryResp.isSuccess()) {
+                    //获取订单实际支付状态
                     String ts = queryResp.getTradeStatus();
+                    //实际支付状态为支付成功或者支付完成
                     if ("TRADE_SUCCESS".equals(ts) || "TRADE_FINISHED".equals(ts)) {
+                        //获取订单实际支付时间
                         LocalDateTime payTime = queryResp.getSendPayDate() != null
                                 ? queryResp.getSendPayDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime()
                                 : LocalDateTime.now();
                         try {
+                            //重新发起成功支付回调
                             orderClient.payCallback(orderNo, queryResp.getTradeNo(), payTime.format(FMT));
                         } catch (Exception feignEx) {
-                            log.error("主动查单后回调异常: orderNo={}", orderNo, feignEx);
+                            log.error("同步支付回调失败 orderNo={}", orderNo, feignEx);
                         }
-                        lambdaUpdate()
-                                .set(EPaymentRecord::getPayNo, queryResp.getTradeNo())
-                                .set(EPaymentRecord::getStatus, PaymentStatus.SUCCESS)
-                                .set(EPaymentRecord::getPayTime, payTime)
-                                .eq(EPaymentRecord::getId, existRecord.getId())
-                                .update();
+                        // 1. 创建独立事务模板（基于当前事务管理器）
+                        TransactionTemplate tt = new TransactionTemplate(transactionManager);
+                        // 2. 设置为 REQUIRES_NEW：挂起外围事务，开启全新独立事务
+                        tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                        // 3. 在新事务中执行更新，即使外围事务回滚也不受影响
+                        tt.execute(txStatus -> {
+                            //支付回调成功，更新支付记录为支付成功状态
+                            lambdaUpdate()
+                                    .set(EPaymentRecord::getPayNo, queryResp.getTradeNo())
+                                    .set(EPaymentRecord::getStatus, PaymentStatus.SUCCESS)
+                                    .set(EPaymentRecord::getPayTime, payTime)
+                                    .eq(EPaymentRecord::getId, existRecord.getId())
+                                    .eq(EPaymentRecord::getStatus, PaymentStatus.PENDING)//乐观锁防竟态
+                                    .update();
+                            return null;
+                        });
                         throw new BadRequestException("该订单已支付，请勿重复支付");
                     }
+                    //订单实际支付状态为待支付，直接删除旧记录，开启新的支付记录
                     removeById(existRecord.getId());
-                } else {
+                }
+                else {
+                    //主动查询支付宝，结果支付宝没给结果（可能网络波动）
                     throw new BadRequestException("该订单已有支付处理中，请稍后重试");
                 }
             }
         }
-
+        //封装支付请求
         AlipayTradePagePayRequest request = new AlipayTradePagePayRequest();
+        //设置支付宝通知回调地址
         request.setNotifyUrl(alipayProperties.getNotifyUrl());
+        //设置支付宝支付页面跳转地址
         request.setReturnUrl(alipayProperties.getReturnUrl() + "?orderNo=" + orderNo);
-
+        //封装支付参数
         AlipayTradePagePayModel model = new AlipayTradePagePayModel();
+        //设置订单号
         model.setOutTradeNo(orderNo.toString());
         model.setTotalAmount(BigDecimal.valueOf(payAmount, 2).toPlainString());
+        //设置支付界面支付主题(订单+orderId)
         model.setSubject(order.getSubject());
+        //设置支付产品
         model.setProductCode("FAST_INSTANT_TRADE_PAY");
+        //设置业务参数
         request.setBizModel(model);
 
         try {
+            //发起支付
             AlipayTradePagePayResponse response = alipayClient.pageExecute(request);
             if (!response.isSuccess()) {
                 log.error("支付宝下单失败: orderNo={}, code={}, msg={}", orderNo, response.getCode(), response.getMsg());
                 throw new BadRequestException("支付发起失败: " + response.getMsg());
             }
+            //创建支付记录
             EPaymentRecord record = new EPaymentRecord();
+            //关联订单号
             record.setOrderNo(orderNo);
+            //支付用户ID
             record.setUserId(userId);
+            //支付金额
             record.setTotalAmount(payAmount);
+            //支付状态
             record.setStatus(PaymentStatus.PENDING);
+            //保存落库
             save(record);
+            //返回支付宝页面
             return response.getBody();
         } catch (AlipayApiException e) {
             log.error("支付宝 API 异常: orderNo={}", orderNo, e);
